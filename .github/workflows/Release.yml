@@ -2,6 +2,9 @@ name: Release
 
 # Manual release: merges develop into main, builds every variant and
 # uploads the split 7z images to the versioned GitHub Release.
+#
+# Runs entirely on the built-in GITHUB_TOKEN (no PAT secret): the version
+# bump and changelog commits do not need to retrigger other workflows.
 on:
   workflow_dispatch:
     inputs:
@@ -9,6 +12,9 @@ on:
         type: string
         description: New version number in X.Y.Z
         required: true
+
+permissions:
+  contents: write
 
 jobs:
   push-version-number:
@@ -18,7 +24,6 @@ jobs:
       - name: Clone develop repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT }}
           ref: "develop"
 
       - name: Get current version
@@ -50,7 +55,7 @@ jobs:
     steps:
       - uses: everlytic/branch-merge@1.1.5
         with:
-          github_token: ${{ secrets.PAT }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           source_ref: "develop"
           target_branch: "main"
           commit_message_template: "[Automated] Merged {source_ref} into target {target_branch}"
@@ -265,7 +270,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: "develop"
-          token: ${{ secrets.PAT }}
           fetch-depth: 0
 
       - name: Get latest tag
