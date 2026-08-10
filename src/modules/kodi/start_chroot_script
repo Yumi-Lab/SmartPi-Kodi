@@ -27,6 +27,9 @@ install_cleanup_trap
 echo_green "Installing Kodi media center ..."
 
 ## Step 1: Install Kodi, the minimal X stack and audio tools
+# DietPi base images ship without /var/cache/apt/archives — recreate it or
+# apt aborts with "Archives directory .../partial is missing".
+mkdir -p /var/cache/apt/archives/partial
 apt-get update
 # shellcheck disable=SC2086
 check_install_pkgs ${KODI_PKGS}
@@ -74,9 +77,10 @@ systemctl_if_exists enable kodi.service
 
 ## Step 6: A media center rootfs should use the whole SD card — re-enable
 ## the Armbian expansion service disabled by armbian_net. On the DietPi
-## variants the service does not exist (DietPi expands the rootfs itself
-## on first boot) and systemctl_if_exists skips it.
-systemctl_if_exists enable armbian-resize-filesystem.service
+## variants the unit does not exist (DietPi expands the rootfs itself on
+## first boot); systemctl_if_exists only checks for systemctl, so tolerate
+## the missing unit explicitly.
+systemctl_if_exists enable armbian-resize-filesystem.service || true
 ## END
 
 echo_green "Installing Kodi media center ... [DONE]"

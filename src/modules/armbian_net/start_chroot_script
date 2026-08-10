@@ -40,12 +40,15 @@ fi
 ## END
 
 ## Step 3: Disable first run service
-systemctl_if_exists disable armbian-firstrun-config.service
+# systemctl_if_exists only checks that systemctl is present, not the unit:
+# newer base images (forky) dropped armbian-firstrun-config, so tolerate a
+# missing unit instead of failing the whole build under set -e.
+systemctl_if_exists disable armbian-firstrun-config.service || true
 ## END
 
 ## Step 3.1: Disable armbian-resize-filesystem (CustomPiOS handles partition sizing)
 # Without this, Armbian resizes the partition at first boot (~6min delay)
-systemctl_if_exists disable armbian-resize-filesystem.service
+systemctl_if_exists disable armbian-resize-filesystem.service || true
 ## END
 
 ## Step 3.2: Mask console-setup (broken on minimal server images)
