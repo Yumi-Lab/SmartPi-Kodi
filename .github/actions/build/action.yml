@@ -1,0 +1,225 @@
+name: "SmartPi-Kodi/build"
+author: "Stefan Dej"
+description: "Build SmartPi-Kodi images"
+inputs:
+  config:
+    description: "Board config name"
+    required: true
+  custompios-repository:
+    description: "Repository for CustomPiOS"
+    required: false
+    default: "Yumi-Lab/CustomPiOS-Yumi"
+  custompios-ref:
+    description: "Branch / Tag / SHA to checkout CustomPiOS"
+    required: false
+    default: "1.5.0"
+outputs:
+  type:
+    description: SBC type (raspberry/armbian/...)
+    value: ${{ steps.config.outputs.TYPE }}
+  sbc:
+    description: SBC model (rpi32/orangepi4lts/...)
+    value: ${{ steps.config.outputs.SBC }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Dependencies
+      shell: bash
+      run: sudo apt update; sudo apt install --yes aria2 coreutils jq p7zip-full qemu-user-static zip
+
+    - name: Checkout CustomPiOS
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.custompios-repository }}
+        ref: ${{ inputs.custompios-ref }}
+        path: CustomPiOS
+
+    - name: Read board config
+      id: config
+      shell: bash
+      run: |
+        IFS='/' read -r -a array <<< "${{ inputs.config }}"
+        TYPE=${array[0]}
+        SBC=${array[1]}
+
+        echo "TYPE=${TYPE}" >> $GITHUB_OUTPUT
+        echo "SBC=${SBC}" >> $GITHUB_OUTPUT
+
+        GENERIC_FILE="./repository/config/default"
+        if [[ -f "$GENERIC_FILE" ]]; then
+          cat "${GENERIC_FILE}" >> ./repository/src/config
+        fi
+
+        TYPE_FILE="./repository/config/${TYPE}/default"
+        if [[ -f "$TYPE_FILE" ]]; then
+          cat "${TYPE_FILE}" >> ./repository/src/config
+        fi
+
+        SBC_FILE="./repository/config/${TYPE}/${SBC}"
+        if [[ -f "$SBC_FILE" ]]; then
+          cat "${SBC_FILE}" >> ./repository/src/config
+        fi
+
+        source ./repository/src/config
+
+        echo $DOWNLOAD_URL_CHECKSUM
+        echo $DOWNLOAD_URL_IMAGE
+        echo $MODULES
+        echo $(cat ./repository/src/config)
+
+        echo "DOWNLOAD_URL_CHECKSUM=${DOWNLOAD_URL_CHECKSUM}" >> $GITHUB_OUTPUT
+        echo "DOWNLOAD_URL_IMAGE=${DOWNLOAD_URL_IMAGE}" >> $GITHUB_OUTPUT
+        echo "MODULES=${MODULES}" >> $GITHUB_OUTPUT
+
+    - name: Base Image Checksum
+      id: checksum
+      shell: bash
+      run: |
+        cd repository/src/image
+        FILENAME=$(basename ${{ steps.config.outputs.DOWNLOAD_URL_CHECKSUM }})
+        wget -O ${FILENAME} ${{ steps.config.outputs.DOWNLOAD_URL_CHECKSUM }}
+        FILE_CONTENT=$(head -n 1 $FILENAME)
+        CHECKSUM=$(echo $FILE_CONTENT | cut -d' ' -f1)
+
+        echo "CHECKSUM=${CHECKSUM}" >> $GITHUB_OUTPUT
+        echo "FILENAME=${FILENAME}" >> $GITHUB_OUTPUT
+
+    - name: Cache Base Source Image
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: repository/src/image/*.img.xz
+        key: base-image-${{ steps.checksum.outputs.CHECKSUM }}
+
+    - name: Download Base Source Image via Torrent
+      if: steps.cache.outputs.cache-hit != 'true' && endswith(steps.config.outputs.DOWNLOAD_URL_IMAGE, '.torrent')
+      shell: bash
+      run: aria2c -d repository/src/image --seed-time=0 ${{ steps.config.outputs.DOWNLOAD_URL_IMAGE }}
+
+    - name: Download Base Source Image via wget
+      if: steps.cache.outputs.cache-hit != 'true' && !endswith(steps.config.outputs.DOWNLOAD_URL_IMAGE, '.torrent')
+      shell: bash
+      run: |
+        cd repository/src/image
+        wget ${{ steps.config.outputs.DOWNLOAD_URL_IMAGE }}
+
+    - name: Comparing Checksums
+      shell: bash
+      run: |
+        cd repository/src/image
+        IMAGE_FILE=$(basename "${{ steps.config.outputs.DOWNLOAD_URL_IMAGE }}")
+        EXPECTED="${{ steps.checksum.outputs.CHECKSUM }}"
+        ACTUAL=$(sha256sum -b "${IMAGE_FILE}" | cut -d' ' -f1)
+        if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+          echo "Checksum mismatch! expected=${EXPECTED} actual=${ACTUAL}"
+          exit 1
+        fi
+        echo "Checksum OK: ${ACTUAL}"
+
+    - name: Update CustomPiOS Paths
+      shell: bash
+      run: cd repository/src && ../../CustomPiOS/src/update-custompios-paths
+
+    - name: Free disk space
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force 2>/dev/null || true
+        df -h
+
+    - name: Build Image
+      shell: bash
+      run: sudo modprobe loop && cd repository/src && sudo bash -x ./build_dist
+
+    - name: Filesystem check (e2fsck)
+      shell: bash
+      run: |
+        IMG=$(sudo find repository/src/workspace -name "*.img" | head -1)
+        LOOP=$(sudo losetup -fP --show "$IMG")
+        sleep 1
+        sudo e2fsck -fy "${LOOP}p2"
+        RET=$?
+        if [ $RET -gt 2 ]; then
+          echo "❌ e2fsck failed with code $RET — filesystem is corrupt"
+          sudo losetup -d "$LOOP"
+          exit 1
+        fi
+        echo "✅ e2fsck passed (code $RET)"
+        sudo losetup -d "$LOOP"
+
+    - name: Smoke test — mount image and verify structure
+      shell: bash
+      run: |
+        IMG=$(sudo find repository/src/workspace -name "*.img" | head -1)
+        LOOP=$(sudo losetup -fP --show "$IMG")
+        sleep 1
+        MNT=$(mktemp -d)
+        sudo mount -o ro "${LOOP}p2" "$MNT"
+        source repository/src/config
+        FAIL=0
+        check() {
+          if [ -e "$MNT/$1" ]; then echo "  OK  $1"; else echo "  FAIL  $1"; FAIL=1; fi
+        }
+        check_dir() {
+          if [ -d "$MNT/$1" ]; then echo "  OK  $1/"; else echo "  FAIL  $1/"; FAIL=1; fi
+        }
+        check_link() {
+          if [ -L "$MNT/$1" ]; then echo "  OK  $1 -> $(readlink "$MNT/$1")"; else echo "  FAIL  $1 (not a symlink)"; FAIL=1; fi
+        }
+        check_exec() {
+          if [ -x "$MNT/$1" ]; then echo "  OK  $1 (exec)"; else echo "  FAIL  $1 (not executable)"; FAIL=1; fi
+        }
+
+        echo "=== Base OS ==="
+        grep -q "^ID=debian" "$MNT/etc/os-release" && echo "  OK  Debian rootfs" || { echo "  FAIL  not a Debian rootfs"; FAIL=1; }
+        if [ -f "$MNT/etc/armbian-release" ]; then
+          grep -qP "BRANCH=.+" "$MNT/etc/armbian-release" && echo "  OK  BRANCH has value" || { echo "  FAIL  BRANCH empty in armbian-release"; FAIL=1; }
+        else
+          echo "  --  no /etc/armbian-release (DietPi variant)"
+        fi
+
+        echo "=== Kodi install ==="
+        check_exec usr/bin/kodi
+        check_exec usr/bin/kodi-standalone
+        check_dir usr/share/kodi
+        KODI_BIN=$(sudo find "$MNT/usr/lib" -type f -name "kodi.bin" 2>/dev/null | head -1)
+        if [ -n "$KODI_BIN" ]; then echo "  OK  kodi.bin present"; else echo "  FAIL  kodi.bin missing"; FAIL=1; fi
+
+        echo "=== X stack ==="
+        check_exec usr/bin/xinit
+        check etc/X11/Xwrapper.config
+        grep -q "allowed_users=anybody" "$MNT/etc/X11/Xwrapper.config" && echo "  OK  Xwrapper allows service start" || { echo "  FAIL  Xwrapper.config not configured"; FAIL=1; }
+
+        echo "=== Boot into Kodi ==="
+        check etc/systemd/system/kodi.service
+        grep -q "ExecStart=/usr/bin/xinit" "$MNT/etc/systemd/system/kodi.service" && echo "  OK  xinit launch line" || { echo "  FAIL  xinit launch line missing"; FAIL=1; }
+        grep -q "User=${BASE_USER}" "$MNT/etc/systemd/system/kodi.service" && echo "  OK  runs as ${BASE_USER}" || { echo "  FAIL  wrong user in kodi.service"; FAIL=1; }
+        check_link etc/systemd/system/multi-user.target.wants/kodi.service
+
+        echo "=== User and groups ==="
+        grep -q "^${BASE_USER}:" "$MNT/etc/passwd" && echo "  OK  user ${BASE_USER} exists" || { echo "  FAIL  user ${BASE_USER} missing"; FAIL=1; }
+        for g in video render input audio; do
+          grep -E "^${g}:.*[:,]${BASE_USER}(,|$)" "$MNT/etc/group" >/dev/null && echo "  OK  ${BASE_USER} in group ${g}" || { echo "  FAIL  ${BASE_USER} not in group ${g}"; FAIL=1; }
+        done
+
+        echo "=== Disk usage ==="
+        df -h "$MNT" | tail -1
+
+        sudo umount "$MNT"
+        rmdir "$MNT"
+        sudo losetup -d "$LOOP"
+        [ $FAIL -eq 0 ] || { echo ""; echo "SMOKE TEST FAILED — see above"; exit 1; }
+
+    - name: Cleanup workspace & fix permissions
+      if: success()
+      shell: bash
+      run: |
+        # Clean up workspace
+        path="${{ github.workspace }}/repository/src/workspace"
+        sudo rm -rfv ${path}/aptcache
+        sudo rm -rfv ${path}/mount
+        sudo rm -rfv ${path}/chroot_script
+
+        sudo chown -v -R ${USER}:${USER} ${path}
+        sudo chmod 0775 -v -R ${path}

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Shebang for better file detection
+# shellcheck enable=require-variable-braces
+# shellcheck disable=SC2034
+
+# Base image: SmartPi One — DietPi on Forky (Debian 14) — clean base
+DOWNLOAD_URL_CHECKSUM="https://github.com/Yumi-Lab/DietPi-SmartPi/releases/download/v1.8.0-rc5/Yumi-smartpi1-forky-debian14-dietpi-2026-08-06-0859.img.xz.sha256"
+DOWNLOAD_URL_IMAGE="https://github.com/Yumi-Lab/DietPi-SmartPi/releases/download/v1.8.0-rc5/Yumi-smartpi1-forky-debian14-dietpi-2026-08-06-0859.img.xz"
+
+# SmartPi One — AllWinner H3 — ARMv7 32-bit
+BASE_ARCH="armhf"
+BASE_SBC="smartpi1"
+BASE_OS_CODENAME="forky"
+BASE_OS_VERSION="debian14-dietpi"
+
+# export Variables
+export BASE_ARCH
+export BASE_SBC
+export BASE_OS_CODENAME
+export BASE_OS_VERSION
+export DOWNLOAD_URL_CHECKSUM
+export DOWNLOAD_URL_IMAGE

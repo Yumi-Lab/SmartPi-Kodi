@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Shebang for better file detection
+#### SmartPi-Kodi — Kodi media center module
+####
+#### This File is distributed under GPLv3
+####
+
+# shellcheck disable=all
+
+# Single source for every Kodi value used by the chroot script and the
+# systemd unit it renders.
+#
+# Debian builds kodi.bin for armhf against X11 + GLES (no GBM binary),
+# so the image ships a minimal X stack and boots Kodi through xinit —
+# modesetting driver + glamor on the lima GPU, no desktop environment.
+[[ -n "${KODI_PKGS}" ]] || KODI_PKGS="kodi kodi-peripheral-joystick kodi-inputstream-adaptive xserver-xorg-core xserver-xorg-legacy xserver-xorg-input-libinput xinit x11-xserver-utils libgl1-mesa-dri dbus-x11 alsa-utils"
+[[ -n "${KODI_SERVICE_FILE}" ]] || KODI_SERVICE_FILE="/etc/systemd/system/kodi.service"
+[[ -n "${KODI_USER_GROUPS}" ]] || KODI_USER_GROUPS="video,render,input,audio,tty"
+[[ -n "${KODI_XWRAPPER_FILE}" ]] || KODI_XWRAPPER_FILE="/etc/X11/Xwrapper.config"

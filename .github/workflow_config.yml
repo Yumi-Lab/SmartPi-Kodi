@@ -1,0 +1,34 @@
+#### Configure workflow matrix
+####
+#### Written by Stephan Wendel aka KwadFan <me@stephanwe.de>
+#### Copyright 2023 - till today
+#### https://github.com/mainsail-crew/MainsailOS
+####
+#### This File is distributed under GPLv3
+####
+
+#### NOTE: Use entries according to their directory/file structure in 'config'
+####       e.g. raspberry/rpi32 armbian/orangepi3lts ...
+
+# Use this categorie to configure behaviour on pushes/pull requests against
+# develop branch
+# Each entry will be used in setup matrix
+
+buildtest:
+  # armbian based images
+  - armbian/smartpi1-trixie
+  - armbian/smartpi1-forky
+  # dietpi based images
+  - dietpi/smartpi1-trixie
+  - dietpi/smartpi1-forky
+
+# This is used to setup release build chain.
+# Each entry will be used in setup matrix for releases
+
+release:
+  # armbian based images
+  - armbian/smartpi1-trixie
+  - armbian/smartpi1-forky
+  # dietpi based images
+  - dietpi/smartpi1-trixie
+  - dietpi/smartpi1-forky

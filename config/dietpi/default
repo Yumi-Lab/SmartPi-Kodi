@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Shebang for better file detection
+
+# Declare Variables before exporting.
+# See https://www.shellcheck.net/wiki/SC2155
+
+# Base User
+BASE_ADD_USER="yes"
+BASE_USER="pi"
+BASE_USER_PASSWORD="yumi"
+
+# BASE_DISTRO selects the CustomPiOS image handler, not the marketing name:
+# the DietPi base images are converted from the SmartPi-armbian ones and
+# keep the same partition layout, so the armbian handler applies.
+BASE_DISTRO="armbian"
+BASE_IMAGE_RASPBIAN="no"
+
+# partition resizing
+BASE_ROOT_PARTITION="2"
+BASE_IMAGE_ENLARGEROOT=4000
+BASE_IMAGE_RESIZEROOT=2600
+# Set boot partition mountpoint
+BASE_BOOT_MOUNT_PATH="/boot/"
+# Compress not needed due compression done in workflow
+BASE_RELEASE_COMPRESS=no
+# DietPi handles networking and rootfs expansion itself on first boot,
+# so the chain skips the armbian/armbian_net modules.
+MODULES="base(udev_fix,kodi)"
+
+# export Variables
+export BASE_ADD_USER
+export BASE_USER
+export BASE_USER_PASSWORD
+export BASE_DISTRO
+export BASE_IMAGE_RASPBIAN
+export BASE_ROOT_PARTITION
+export BASE_IMAGE_ENLARGEROOT
+export BASE_IMAGE_RESIZEROOT
+export BASE_BOOT_MOUNT_PATH
+export BASE_RELEASE_COMPRESS
+export MODULES

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#### SmartPi-Kodi — Kodi media center (standalone, X11/GLES)
+####
+#### Kodi comes straight from the Debian repositories, so unlike
+#### OpenMediaVault it installs cleanly inside the build chroot.
+#### The image boots directly into Kodi the way LibreELEC does:
+#### kodi.service takes over tty1 and runs xinit + kodi-standalone
+#### as ${BASE_USER} — Debian builds kodi.bin for armhf against
+#### X11 + GLES, rendered by modesetting/glamor on the lima GPU,
+#### with no desktop environment installed.
+####
+#### This File is distributed under GPLv3
+####
+
+# shellcheck enable=require-variable-braces
+# Source error handling, leave this in place
+set -Ee
+
+export LC_ALL=C
+export DEBIAN_FRONTEND=noninteractive
+
+# Source CustomPIOS common.sh
+# shellcheck disable=SC1091
+source /common.sh
+install_cleanup_trap
+
+echo_green "Installing Kodi media center ..."
+
+## Step 1: Install Kodi, the minimal X stack and audio tools
+apt-get update
+# shellcheck disable=SC2086
+check_install_pkgs ${KODI_PKGS}
+## END
+
+## Step 2: Let ${BASE_USER} reach the DRM, input and audio devices
+usermod -aG "${KODI_USER_GROUPS}" "${BASE_USER}"
+## END
+
+## Step 3: Allow the X server to start from the systemd service
+## (xinit runs outside a console login, which the default wrapper refuses)
+cat > "${KODI_XWRAPPER_FILE}" << EOF
+allowed_users=anybody
+needs_root_rights=yes
+EOF
+## END
+
+## Step 4: Render the systemd unit
+## (single source of truth: this module's config file)
+cat > "${KODI_SERVICE_FILE}" << EOF
+[Unit]
+Description=Kodi media center (standalone, X11)
+After=systemd-user-sessions.service sound.target
+Conflicts=getty@tty1.service
+
+[Service]
+User=${BASE_USER}
+Group=${BASE_USER}
+PAMName=login
+TTYPath=/dev/tty1
+ExecStart=/usr/bin/xinit /usr/bin/dbus-launch --exit-with-session /usr/bin/kodi-standalone -- :0 -nolisten tcp vt1
+Restart=on-abort
+TimeoutStopSec=15
+StandardInput=tty
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+## END
+
+## Step 5: Boot into Kodi instead of a login prompt on tty1
+systemctl_if_exists enable kodi.service
+## END
+
+## Step 6: A media center rootfs should use the whole SD card — re-enable
+## the Armbian expansion service disabled by armbian_net. On the DietPi
+## variants the service does not exist (DietPi expands the rootfs itself
+## on first boot) and systemctl_if_exists skips it.
+systemctl_if_exists enable armbian-resize-filesystem.service
+## END
+
+echo_green "Installing Kodi media center ... [DONE]"
