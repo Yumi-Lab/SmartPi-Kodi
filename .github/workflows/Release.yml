@@ -272,31 +272,20 @@ jobs:
           ref: "develop"
           fetch-depth: 0
 
-      - name: Get latest tag
-        id: get_tags
-        shell: bash
-        run: |
-          echo "END_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))" >> $GITHUB_OUTPUT
-
-          if [[ "${{ github.repository_owner }}" == "Yumi-Lab" ]]; then
-            echo "START_TAG=0.0.0" >> $GITHUB_OUTPUT
-          else
-            echo "START_TAG=$(git for-each-ref --sort=creatordate --count=1 --format='%(refname:lstrip=2)')" >> $GITHUB_OUTPUT
-          fi
-
       - name: Install git-cliff
         shell: bash
         run: |
           curl -sSL https://github.com/orhun/git-cliff/releases/download/v2.7.0/git-cliff-2.7.0-x86_64-unknown-linux-gnu.tar.gz \
             | tar -xz --strip-components=1 -C /usr/local/bin git-cliff-2.7.0/git-cliff
 
+      # Full-history changelog: regenerating the whole file each release is
+      # idempotent and never depends on a start tag existing (the template's
+      # 0.0.0..X.Y.Z range broke the very first release).
       - name: Generate a changelog
         id: git-cliff
         shell: bash
         run: |
-          git-cliff --config cliff.toml \
-            ${{ steps.get_tags.outputs.START_TAG }}..${{ steps.get_tags.outputs.END_TAG }} \
-            --output "${{ github.workspace }}/CHANGELOG.md" 2>/dev/null || true
+          git-cliff --config cliff.toml --output "${{ github.workspace }}/CHANGELOG.md"
 
       - name: Show CHANGELOG
         run: |
