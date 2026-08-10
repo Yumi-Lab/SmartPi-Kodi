@@ -1,5 +1,7 @@
 name: Release
 
+# Manual release: merges develop into main, builds every variant and
+# uploads the split 7z images to the versioned GitHub Release.
 on:
   workflow_dispatch:
     inputs:
