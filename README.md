@@ -7,10 +7,11 @@ rebuilds the same experience on top of Debian.
 
 ## Install
 
-1. Download the image for your preferred base from the
-   [latest release](https://github.com/Yumi-Lab/SmartPi-Kodi/releases/latest)
-   (`.img.7z` multi-part archives — The Unarchiver on macOS and 7-Zip on Windows
-   open `.001`/`.002` parts natively).
+1. Download the `.img.7z` for your preferred base from the
+   [latest release](https://github.com/Yumi-Lab/SmartPi-Kodi/releases/latest).
+   Should an image ever outgrow GitHub's 2 GiB asset limit, it is published as
+   `.7z.001`/`.7z.002` parts instead — The Unarchiver on macOS and 7-Zip on
+   Windows open both forms natively.
 2. Extract the `.img` and verify it against the published `.img.sha256`.
 3. Flash it to an SD card (8 GB minimum):
 

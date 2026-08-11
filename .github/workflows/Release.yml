@@ -182,8 +182,14 @@ jobs:
           IMAGE="${{ steps.move-image.outputs.image }}"
           sudo apt-get install -y p7zip-full
           echo -e "\e[32mUsing ${CPU_COUNT} Cores for compression (7z split)...\e[0m"
-          # 7z split archive — .001/.002 are natively opened by The Unarchiver (Mac) and 7-Zip (Windows)
+          # Split in 1900m volumes to stay under the 2 GiB GitHub asset limit.
+          # .001/.002 are natively opened by The Unarchiver (Mac) and 7-Zip (Windows).
           7z a -v1900m -mx=9 "-mmt=${CPU_COUNT}" "${IMAGE}.img.7z" "${IMAGE}.img"
+          # Single volume → plain .7z; the split naming only matters when the
+          # archive actually exceeds one volume.
+          if [ ! -e "${IMAGE}.img.7z.002" ]; then
+            mv "${IMAGE}.img.7z.001" "${IMAGE}.img.7z"
+          fi
 
       - name: Upload Compressing Image
         if: success()
@@ -192,7 +198,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IMAGE="${{ steps.move-image.outputs.image }}"
-          for part in "${IMAGE}.img.7z."*; do
+          for part in "${IMAGE}.img.7z"*; do
             gh release upload "${{ github.event.inputs.version }}" \
               "${part}" \
               --repo "${{ github.repository }}" \
@@ -208,7 +214,9 @@ jobs:
           image_checksum=$(awk '{ print $1 }' "${IMAGE}.img.sha256")
           echo "image=${image_checksum}" >> $GITHUB_OUTPUT
 
-          sha256sum "${IMAGE}.img.7z.001" > "${IMAGE}.img.7z.sha256"
+          ZIP_FIRST="${IMAGE}.img.7z"
+          [ -e "${ZIP_FIRST}" ] || ZIP_FIRST="${IMAGE}.img.7z.001"
+          sha256sum "${ZIP_FIRST}" > "${IMAGE}.img.7z.sha256"
           zip_checksum=$(awk '{ print $1 }' "${IMAGE}.img.7z.sha256")
           echo "zip=${zip_checksum}" >> $GITHUB_OUTPUT
 
@@ -233,7 +241,9 @@ jobs:
           image_filesize=$(wc -c "${IMAGE}.img" | awk '{print $1}')
           echo "image=${image_filesize}" >> $GITHUB_OUTPUT
 
-          zip_filesize=$(wc -c "${IMAGE}.img.7z.001" | awk '{print $1}')
+          ZIP_FIRST="${IMAGE}.img.7z"
+          [ -e "${ZIP_FIRST}" ] || ZIP_FIRST="${IMAGE}.img.7z.001"
+          zip_filesize=$(wc -c "${ZIP_FIRST}" | awk '{print $1}')
           echo "zip=${zip_filesize}" >> $GITHUB_OUTPUT
 
       - name: Debug output
