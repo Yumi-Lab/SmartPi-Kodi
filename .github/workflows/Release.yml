@@ -169,7 +169,9 @@ jobs:
         run: |
           source repository/src/config
           base_name="${{ needs.release.outputs.date }}-${DIST_NAME}-${DIST_VERSION}"
-          image="${base_name}-${{ steps.build.outputs.type }}-${{ steps.build.outputs.sbc }}"
+          # Keep the Debian version visible in the asset name:
+          # <date>-SmartPi-Kodi-<ver>-<type>-smartpi1-<codename>-<debianXX>
+          image="${base_name}-${{ steps.build.outputs.type }}-${BASE_SBC}-${BASE_OS_CODENAME}-${BASE_OS_VERSION}"
           mv repository/src/workspace/*.img $image.img
 
           echo "base_name=${base_name}" >> $GITHUB_OUTPUT
@@ -180,15 +182,17 @@ jobs:
         run: |
           CPU_COUNT="$(nproc)"
           IMAGE="${{ steps.move-image.outputs.image }}"
-          sudo apt-get install -y p7zip-full
-          echo -e "\e[32mUsing ${CPU_COUNT} Cores for compression (7z split)...\e[0m"
-          # Split in 1900m volumes to stay under the 2 GiB GitHub asset limit.
-          # .001/.002 are natively opened by The Unarchiver (Mac) and 7-Zip (Windows).
-          7z a -v1900m -mx=9 "-mmt=${CPU_COUNT}" "${IMAGE}.img.7z" "${IMAGE}.img"
-          # Single volume → plain .7z; the split naming only matters when the
-          # archive actually exceeds one volume.
-          if [ ! -e "${IMAGE}.img.7z.002" ]; then
-            mv "${IMAGE}.img.7z.001" "${IMAGE}.img.7z"
+          echo -e "\e[32mUsing ${CPU_COUNT} Cores for compression (xz)...\e[0m"
+          # xz: same LZMA ratio as 7z, and the .img.xz flashes directly in
+          # USBImager / Raspberry Pi Imager / SmartPi-Imager without extraction.
+          xz -efk -9 -T"${CPU_COUNT}" "${IMAGE}.img"
+          # GitHub rejects release assets over 2 GiB. xz cannot split natively,
+          # so if the archive ever outgrows the limit, fall back to split 7z
+          # (.001/.002 open natively in The Unarchiver and 7-Zip).
+          if [ "$(wc -c < "${IMAGE}.img.xz")" -ge 2000000000 ]; then
+            rm "${IMAGE}.img.xz"
+            sudo apt-get install -y p7zip-full
+            7z a -v1900m -mx=9 "-mmt=${CPU_COUNT}" "${IMAGE}.img.7z" "${IMAGE}.img"
           fi
 
       - name: Upload Compressing Image
@@ -198,7 +202,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IMAGE="${{ steps.move-image.outputs.image }}"
-          for part in "${IMAGE}.img.7z"*; do
+          for part in "${IMAGE}.img.xz" "${IMAGE}.img.7z"*; do
+            [ -e "${part}" ] || continue
             gh release upload "${{ github.event.inputs.version }}" \
               "${part}" \
               --repo "${{ github.repository }}" \
@@ -214,10 +219,16 @@ jobs:
           image_checksum=$(awk '{ print $1 }' "${IMAGE}.img.sha256")
           echo "image=${image_checksum}" >> $GITHUB_OUTPUT
 
-          ZIP_FIRST="${IMAGE}.img.7z"
-          [ -e "${ZIP_FIRST}" ] || ZIP_FIRST="${IMAGE}.img.7z.001"
-          sha256sum "${ZIP_FIRST}" > "${IMAGE}.img.7z.sha256"
-          zip_checksum=$(awk '{ print $1 }' "${IMAGE}.img.7z.sha256")
+          if [ -e "${IMAGE}.img.xz" ]; then
+            ARCHIVE="${IMAGE}.img.xz"
+            ARCHIVE_SUM="${IMAGE}.img.xz.sha256"
+          else
+            ARCHIVE="${IMAGE}.img.7z"
+            [ -e "${ARCHIVE}" ] || ARCHIVE="${IMAGE}.img.7z.001"
+            ARCHIVE_SUM="${IMAGE}.img.7z.sha256"
+          fi
+          sha256sum "${ARCHIVE}" > "${ARCHIVE_SUM}"
+          zip_checksum=$(awk '{ print $1 }' "${ARCHIVE_SUM}")
           echo "zip=${zip_checksum}" >> $GITHUB_OUTPUT
 
       - name: Upload Checksums
@@ -227,11 +238,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IMAGE="${{ steps.move-image.outputs.image }}"
-          gh release upload "${{ github.event.inputs.version }}" \
-            "${IMAGE}.img.sha256" \
-            "${IMAGE}.img.7z.sha256" \
-            --repo "${{ github.repository }}" \
-            --clobber
+          for sum in "${IMAGE}".img*.sha256; do
+            gh release upload "${{ github.event.inputs.version }}" \
+              "${sum}" \
+              --repo "${{ github.repository }}" \
+              --clobber
+          done
 
       - name: Calculating filesizes
         id: filesizes
@@ -241,9 +253,10 @@ jobs:
           image_filesize=$(wc -c "${IMAGE}.img" | awk '{print $1}')
           echo "image=${image_filesize}" >> $GITHUB_OUTPUT
 
-          ZIP_FIRST="${IMAGE}.img.7z"
-          [ -e "${ZIP_FIRST}" ] || ZIP_FIRST="${IMAGE}.img.7z.001"
-          zip_filesize=$(wc -c "${ZIP_FIRST}" | awk '{print $1}')
+          ARCHIVE="${IMAGE}.img.xz"
+          [ -e "${ARCHIVE}" ] || ARCHIVE="${IMAGE}.img.7z"
+          [ -e "${ARCHIVE}" ] || ARCHIVE="${IMAGE}.img.7z.001"
+          zip_filesize=$(wc -c "${ARCHIVE}" | awk '{print $1}')
           echo "zip=${zip_filesize}" >> $GITHUB_OUTPUT
 
       - name: Debug output

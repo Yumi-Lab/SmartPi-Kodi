@@ -11,7 +11,9 @@ DOWNLOAD_URL_IMAGE="https://github.com/Yumi-Lab/DietPi-SmartPi/releases/download
 BASE_ARCH="armhf"
 BASE_SBC="smartpi1"
 BASE_OS_CODENAME="forky"
-BASE_OS_VERSION="debian14-dietpi"
+# Plain Debian version: the config type (dietpi) is part of the image name
+# since both workflows include it, so no -dietpi suffix here.
+BASE_OS_VERSION="debian14"
 
 # export Variables
 export BASE_ARCH
